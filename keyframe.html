@@ -1,0 +1,1779 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Anchor Stage — MVP</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap');
+
+  :root{
+    --bg: #080A10;
+    --bg-elevated: #0E1219;
+    --panel: #121722;
+    --panel-hover: #181E2C;
+    --line: rgba(255,255,255,0.08);
+    --line-strong: rgba(255,255,255,0.14);
+    --amber: #F0B04A;
+    --amber-dim: rgba(240,176,74,0.22);
+    --amber-glow: rgba(240,176,74,0.35);
+    --teal: #5EEAD4;
+    --teal-dim: rgba(94,234,212,0.18);
+    --teal-glow: rgba(94,234,212,0.32);
+    --danger: #FF6B6B;
+    --danger-dim: rgba(255,107,107,0.16);
+    --ink: #F2EEE4;
+    --ink-dim: #8B92A8;
+    --radius: 14px;
+    --radius-sm: 8px;
+    --shadow: 0 24px 64px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04);
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; min-height:100%; background:var(--bg); color:var(--ink);
+    font-family:'Noto Sans SC',system-ui,sans-serif;
+    display:flex; align-items:center; justify-content:center;
+  }
+  body::before{
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(240,176,74,0.09) 0%, transparent 55%),
+      radial-gradient(ellipse 60% 40% at 100% 80%, rgba(94,234,212,0.06) 0%, transparent 50%),
+      radial-gradient(circle at 20% 60%, rgba(94,234,212,0.04) 0%, transparent 40%);
+  }
+  body::after{
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:0.35;
+    background-image: radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+  .wrap{
+    position:relative; z-index:1;
+    width:940px; max-width:96vw; padding:28px 20px 32px;
+  }
+  .header{ margin-bottom:22px; }
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:8px;
+    font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.16em;
+    color:var(--amber); text-transform:uppercase; margin:0 0 10px 0;
+    padding:5px 12px; border-radius:999px;
+    background:rgba(240,176,74,0.08); border:1px solid rgba(240,176,74,0.22);
+  }
+  .eyebrow::before{
+    content:''; width:6px; height:6px; border-radius:50%;
+    background:var(--amber); box-shadow:0 0 10px var(--amber-glow);
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot{
+    0%,100%{ opacity:1; transform:scale(1); }
+    50%{ opacity:0.6; transform:scale(0.85); }
+  }
+  h1{
+    margin:0; font-size:28px; font-weight:700; letter-spacing:-.02em; line-height:1.25;
+    background:linear-gradient(135deg, var(--ink) 0%, rgba(242,238,228,0.82) 100%);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+  }
+  .sub{
+    margin:12px 0 0 0; font-size:15px; color:var(--ink-dim); line-height:1.85; max-width:780px;
+  }
+  .sub b{ color:var(--ink); font-weight:600; }
+  .sub .tag{
+    display:inline-block; padding:1px 7px; margin:0 1px; border-radius:4px;
+    font-size:13px; font-weight:500;
+    background:rgba(255,255,255,0.05); border:1px solid var(--line);
+  }
+  .sub .tag.amber{ color:var(--amber); border-color:rgba(240,176,74,0.3); background:rgba(240,176,74,0.08); }
+  .sub .tag.teal{ color:var(--teal); border-color:rgba(94,234,212,0.28); background:rgba(94,234,212,0.08); }
+
+  .stage{
+    position:relative; margin-top:18px; border-radius:var(--radius); overflow:hidden;
+    border:1px solid var(--line-strong);
+    background:linear-gradient(165deg, #151A26 0%, #0C0F16 60%, #0A0D12 100%);
+    box-shadow:var(--shadow);
+    padding-bottom:0;
+  }
+  .stage::before{
+    content:''; position:absolute; inset:0; pointer-events:none; z-index:1;
+    background:linear-gradient(180deg, rgba(240,176,74,0.03) 0%, transparent 28%);
+  }
+  canvas#game{ display:block; width:100%; height:auto; cursor:crosshair; }
+  /* 覆盖整个舞台（画布 + 控制栏 + 时间轴）的手部骨骼层，不再局限于游戏画布内部 */
+  #handOverlay{
+    position:absolute; left:0; top:0; width:100%; height:100%;
+    pointer-events:none; z-index:40; cursor:default;
+  }
+
+  .msg{
+    position:absolute; left:50%; top:38%; transform:translate(-50%,-50%) scale(.92);
+    font-family:'JetBrains Mono',monospace; font-size:13px; padding:12px 20px;
+    border-radius:var(--radius-sm); opacity:0; pointer-events:none;
+    transition:opacity .3s cubic-bezier(.22,1,.36,1), transform .3s cubic-bezier(.22,1,.36,1);
+    white-space:nowrap; letter-spacing:.04em; backdrop-filter:blur(12px); z-index:30;
+  }
+  .msg.fail{
+    background:rgba(255,107,107,0.14); border:1px solid rgba(255,107,107,0.45);
+    color:#FFD8D8; box-shadow:0 8px 32px rgba(255,107,107,0.18);
+  }
+  .msg.win{
+    background:rgba(94,234,212,0.12); border:1px solid rgba(94,234,212,0.42);
+    color:#D8FFF8; box-shadow:0 8px 32px rgba(94,234,212,0.16);
+  }
+  .msg.show{ opacity:1; transform:translate(-50%,-50%) scale(1); }
+
+  .controls{
+    display:flex; align-items:center; gap:8px; padding:12px 16px;
+    background:rgba(18,23,34,0.92); border-top:1px solid var(--line);
+    backdrop-filter:blur(8px);
+  }
+  button{
+    font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.05em;
+    background:var(--panel-hover); color:var(--ink-dim);
+    border:1px solid var(--line); border-radius:var(--radius-sm);
+    padding:8px 14px; cursor:pointer;
+    transition:all .2s ease;
+  }
+  button:hover{
+    border-color:rgba(240,176,74,0.45); color:var(--amber);
+    background:rgba(240,176,74,0.08); transform:translateY(-1px);
+  }
+  button:active{ transform:translateY(0); }
+  button.primary{
+    border-color:rgba(240,176,74,0.5); color:var(--amber);
+    background:linear-gradient(180deg, rgba(240,176,74,0.14) 0%, rgba(240,176,74,0.06) 100%);
+    box-shadow:0 0 20px rgba(240,176,74,0.12);
+  }
+  button.primary:hover{
+    box-shadow:0 0 28px rgba(240,176,74,0.22);
+    background:linear-gradient(180deg, rgba(240,176,74,0.2) 0%, rgba(240,176,74,0.1) 100%);
+  }
+  .time-readout{
+    font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--ink-dim);
+    margin-left:auto; padding:6px 12px; border-radius:var(--radius-sm);
+    background:rgba(255,255,255,0.03); border:1px solid var(--line);
+    font-variant-numeric:tabular-nums;
+  }
+
+  .timeline{
+    padding:18px 16px 20px; background:rgba(14,18,27,0.85);
+    border-top:1px solid var(--line);
+  }
+  .track-label{
+    font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--ink-dim);
+    letter-spacing:.1em; margin-bottom:8px; text-transform:uppercase;
+    display:flex; align-items:center; gap:8px;
+  }
+  .track-label::after{
+    content:''; flex:1; height:1px; background:linear-gradient(90deg, var(--line), transparent);
+  }
+  .main-track{
+    position:relative; height:36px;
+    background:linear-gradient(180deg, #141822 0%, #10141C 100%);
+    border:1px solid var(--line); border-radius:var(--radius-sm);
+    cursor:pointer; margin-bottom:22px; overflow:visible;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .main-track.scrub-active{
+    border-color:rgba(240,176,74,0.4);
+    box-shadow:0 0 0 3px rgba(240,176,74,0.1), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .scrub-indicator{
+    position:absolute; top:50%; left:0; width:16px; height:16px;
+    border-radius:50%; background:var(--amber);
+    transform:translate(-50%,-50%);
+    pointer-events:none; display:none;
+    box-shadow:0 0 20px var(--amber-glow), 0 0 0 3px rgba(240,176,74,0.25);
+  }
+  .played{
+    position:absolute; left:0; top:0; bottom:0;
+    background:linear-gradient(90deg, rgba(240,176,74,.06), rgba(240,176,74,.18));
+    border-radius:var(--radius-sm) 0 0 var(--radius-sm);
+  }
+  .playhead{
+    position:absolute; top:-5px; bottom:-5px; width:2px; background:var(--amber);
+    box-shadow:0 0 12px var(--amber-glow);
+  }
+  .playhead::after{
+    content:''; position:absolute; top:50%; left:50%;
+    width:10px; height:10px; border-radius:50%;
+    background:var(--amber); transform:translate(-50%,-50%);
+    box-shadow:0 0 14px var(--amber-glow);
+  }
+  .death-mark{
+    position:absolute; top:50%; transform:translate(-50%,-50%); width:18px; height:18px;
+    color:var(--danger); font-size:13px; font-weight:700; line-height:18px; text-align:center;
+    pointer-events:none; background:rgba(255,107,107,0.15); border-radius:50%;
+    border:1px solid rgba(255,107,107,0.4);
+  }
+  .win-mark{
+    position:absolute; top:50%; transform:translate(-50%,-50%); color:var(--teal); font-size:12px;
+    pointer-events:none; background:rgba(94,234,212,0.12); border-radius:50%;
+    width:18px; height:18px; line-height:18px; text-align:center;
+    border:1px solid rgba(94,234,212,0.35);
+  }
+  .platform-track{
+    position:relative; height:22px;
+    background:rgba(255,255,255,0.02); border:1px dashed rgba(255,255,255,0.1);
+    border-radius:var(--radius-sm); margin-bottom:18px;
+  }
+  .platform-block{
+    position:absolute; top:2px; bottom:2px; background:var(--amber-dim);
+    border:1px solid rgba(240,176,74,0.5); border-radius:6px;
+    cursor:grab; display:none;
+    box-shadow:0 2px 12px rgba(240,176,74,0.12);
+    transition:background .2s, border-color .2s, box-shadow .2s;
+  }
+  .platform-block.active{
+    background:var(--teal-dim); border-color:rgba(94,234,212,0.55);
+    box-shadow:0 0 16px var(--teal-glow);
+  }
+  .platform-block:active{ cursor:grabbing; }
+
+  .hint-grid{
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));
+    gap:8px; margin-top:4px;
+  }
+  .hint-item{
+    display:flex; align-items:flex-start; gap:10px;
+    padding:10px 12px; border-radius:var(--radius-sm);
+    background:rgba(255,255,255,0.025); border:1px solid var(--line);
+    font-size:12px; color:var(--ink-dim); line-height:1.55;
+    transition:border-color .2s, background .2s;
+  }
+  .hint-item:hover{ background:rgba(255,255,255,0.04); border-color:var(--line-strong); }
+  .hint-item .ico{ font-size:18px; line-height:1; flex-shrink:0; margin-top:1px; }
+  .hint-item strong{ color:var(--amber); font-weight:600; display:block; margin-bottom:2px; font-size:12px; }
+
+  .start-screen{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    background:rgba(8,10,16,0.78); backdrop-filter:blur(10px); z-index:50;
+  }
+  .start-screen.hide{ display:none; }
+  .gesture-hint{
+    position:absolute; top:14px; right:16px; left:auto; transform:translateY(-6px);
+    display:flex; align-items:center; gap:14px;
+    padding:14px 18px; border-radius:var(--radius);
+    background:rgba(14,18,28,0.88); backdrop-filter:blur(16px);
+    border:1px solid rgba(255,255,255,0.1);
+    box-shadow:0 16px 48px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+    color:#F7F7F7; font-family:'Noto Sans SC',sans-serif;
+    z-index:45; pointer-events:none; opacity:0;
+    transition:opacity .35s ease, transform .35s cubic-bezier(.22,1,.36,1);
+    max-width:340px; text-align:left;
+  }
+  .gesture-hint.show{ opacity:1; transform:translateY(0); }
+  .gesture-icon{
+    width:52px; height:52px; display:flex; align-items:center; justify-content:center;
+    font-size:28px; background:rgba(255,255,255,0.06); border-radius:14px;
+    border:1px solid rgba(255,255,255,0.08);
+    animation: gesture-swipe 1.4s ease-in-out infinite;
+    transform-origin:center;
+  }
+  .gesture-icon.active{ animation: pulse 1.1s ease-in-out infinite; }
+  .gesture-text{ display:flex; flex-direction:column; gap:3px; line-height:1.3; }
+  .gesture-text strong{ font-size:15px; font-weight:600; color:#fff; }
+  .gesture-text span{ font-size:12px; color:rgba(255,255,255,0.65); font-family:'JetBrains Mono',monospace; }
+  @keyframes gesture-swipe{
+    0%,100%{ transform: translateX(0); opacity:1; }
+    50%{ transform: translateX(10px); opacity:.82; }
+  }
+  @keyframes pulse{
+    0%,100%{ transform: scale(1); }
+    50%{ transform: scale(1.06); }
+  }
+  .start-card{
+    text-align:center; padding:36px 40px; border-radius:var(--radius);
+    background:rgba(14,18,28,0.95); backdrop-filter:blur(20px);
+    border:1px solid rgba(240,176,74,0.28);
+    box-shadow:0 32px 80px rgba(0,0,0,0.5), 0 0 60px rgba(240,176,74,0.06);
+    animation: card-in .5s cubic-bezier(.22,1,.36,1);
+    max-width:380px;
+  }
+  @keyframes card-in{
+    from{ opacity:0; transform:translateY(12px) scale(0.97); }
+    to{ opacity:1; transform:translateY(0) scale(1); }
+  }
+  .start-card .start-icon{
+    font-size:42px; margin-bottom:12px; display:block;
+    filter:drop-shadow(0 4px 12px rgba(240,176,74,0.3));
+  }
+  .start-card h2{
+    margin:0 0 14px; font-size:24px; letter-spacing:-0.03em; font-weight:700;
+    background:linear-gradient(135deg, #fff 0%, rgba(240,176,74,0.9) 100%);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+  }
+  .start-card p{ margin:6px 0; color:var(--ink-dim); line-height:1.65; font-size:14px; }
+  .start-card .start-hint{
+    margin-top:18px; padding-top:16px; border-top:1px solid var(--line);
+    font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--amber);
+    letter-spacing:.06em;
+  }
+
+  .camera-preview{
+    position:fixed; right:20px; top:20px; width:188px; height:142px;
+    border-radius:var(--radius); overflow:hidden;
+    border:1px solid rgba(255,255,255,0.12);
+    background:#06080C; z-index:1000; pointer-events:none;
+    box-shadow:0 16px 48px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04);
+  }
+  .camera-preview::before{
+    content:''; position:absolute; inset:0; z-index:2; pointer-events:none;
+    background:linear-gradient(180deg, transparent 55%, rgba(8,10,16,0.85) 100%);
+  }
+  .camera-preview video{ width:100%; height:100%; object-fit:cover; transform:scaleX(-1); }
+  .camera-preview canvas{ position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; z-index:1; }
+  .camera-preview .label{
+    position:absolute; left:0; bottom:0; width:100%; padding:8px 10px;
+    font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--ink);
+    background:transparent; z-index:3; letter-spacing:.04em;
+  }
+  .camera-status{
+    position:fixed; right:20px; top:174px; width:188px;
+    font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--ink-dim);
+    text-align:center; padding:8px 10px;
+    background:rgba(14,18,28,0.9); backdrop-filter:blur(12px);
+    border-radius:var(--radius-sm); border:1px solid var(--line);
+    z-index:1000; pointer-events:none;
+  }
+  .debug-panel{
+    position:fixed; right:20px; top:220px; width:188px; max-height:200px;
+    font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--ink-dim);
+    background:rgba(8,10,16,0.92); backdrop-filter:blur(12px);
+    border-radius:var(--radius-sm); border:1px solid var(--line);
+    padding:10px; overflow:auto; line-height:1.5; z-index:1000; pointer-events:none;
+  }
+  .debug-panel strong{ color:var(--amber); }
+
+  .level-switch{ display:flex; gap:8px; margin-top:12px; }
+  .level-btn{
+    font-family:'JetBrains Mono',monospace; font-size:11.5px; font-weight:500;
+    padding:7px 14px; border-radius:999px; cursor:pointer;
+    background:var(--panel); color:var(--ink-dim); border:1px solid var(--line);
+    transition:all .15s ease;
+  }
+  .level-btn:hover{ background:var(--panel-hover); color:var(--ink); }
+  .level-btn.active{
+    background:var(--amber-dim); color:var(--amber); border-color:var(--amber-glow);
+  }
+
+  .lock-segment{
+    position:absolute; top:0; bottom:0; z-index:3;
+    background:repeating-linear-gradient(135deg, rgba(255,107,107,0.22) 0 6px, rgba(255,107,107,0.08) 6px 12px);
+    border-left:1px solid rgba(255,107,107,0.5); border-right:1px solid rgba(255,107,107,0.5);
+    display:flex; align-items:center; justify-content:center;
+    transition:opacity .4s ease, background .4s ease;
+  }
+  .lock-segment.solved{
+    background:repeating-linear-gradient(135deg, rgba(94,234,212,0.16) 0 6px, rgba(94,234,212,0.05) 6px 12px);
+    border-left-color:rgba(94,234,212,0.5); border-right-color:rgba(94,234,212,0.5);
+  }
+  .lock-icon{ font-size:11px; filter:drop-shadow(0 0 4px rgba(0,0,0,0.6)); }
+  .lock-caption{
+    font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--danger);
+    margin-top:6px; opacity:0.85; letter-spacing:0.2px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <p class="eyebrow">关键帧 · KEYFRAME — v0.3 · 摄像头手势系统</p>
+    <h1 id="levelTitle">命运已录好，你只能锚定环境</h1>
+    <p class="sub" id="levelSub">角色的动作无法改变。用摄像头手势控制：<span class="tag amber">食指横向拖动</span> 绘制平台；<span class="tag">左手捏合</span> 拖动时间轴；<span class="tag teal">右手捏合</span> 调整平台区间；<span class="tag">🖐 播放</span> · <span class="tag">✊ 暂停</span> · <span class="tag">👍 回到起点</span></p>
+  </div>
+
+  <div class="stage" id="stageArea">
+    <canvas id="game" width="880" height="320"></canvas>
+    <canvas id="handOverlay"></canvas>
+    <div class="gesture-hint" id="gestureHint">
+      <div class="gesture-icon" id="gestureIcon">👆</div>
+      <div class="gesture-text">
+        <strong id="gestureTitle">在画面中用食指横向滑动</strong>
+        <span id="gestureSubtitle">松开时生成平台</span>
+      </div>
+    </div>
+    <div class="start-screen" id="startScreen">
+      <div class="start-card">
+        <span class="start-icon">⚓</span>
+        <h2>准备开始</h2>
+        <p>任意手食指点击画面即可开始游戏</p>
+        <p>左手捏合拖进度，右手捏合拖平台区间</p>
+        <div class="start-hint">👆 点击画面 · 开始锚定</div>
+      </div>
+    </div>
+      <div class="camera-preview">
+      <video id="cameraVideo" autoplay muted playsinline></video>
+      <canvas id="cameraOverlay"></canvas>
+      <div class="label">摄像头 · pinch 拖动 · 🖐 播放 / ✊ 暂停</div>
+    </div>
+    <div class="camera-status" id="cameraStatus">正在初始化摄像头…</div>
+    <div class="debug-panel" id="debugPanel">等待手势检测...</div>
+    <div class="msg fail" id="failMsg">此处缺少支撑锚点</div>
+    <div class="msg win" id="winMsg">已锚定 · 播放完成</div>
+
+    <div class="controls">
+      <button class="primary" id="playBtn">▶ 播放</button>
+      <button id="resetBtn">⟲ 回到起点</button>
+      <button id="clearBtn">✕ 清除平台</button>
+      <span class="time-readout" id="timeReadout">0.00s / 6.50s</span>
+    </div>
+
+    <div class="timeline">
+      <div class="track-label">时间线 · TIMELINE</div>
+      <div class="main-track" id="mainTrack">
+        <div class="played" id="playedBar"></div>
+        <div class="lock-segment" id="lockSegment" style="display:none;">
+          <span class="lock-icon" id="lockIcon">🔒</span>
+        </div>
+        <div class="playhead" id="playhead"></div>
+        <div class="scrub-indicator" id="scrubIndicator"></div>
+      </div>
+      <div class="lock-caption" id="lockCaption" style="display:none;">中间片段缺失 · 靠首尾证据推理，编辑到能让角色活着穿过即可自动补全</div>
+      <div class="track-label">平台锚定区间 · PLATFORM ANCHOR WINDOW（拖动整块可调整出现时刻）</div>
+      <div class="platform-track" id="platformTrack">
+        <div class="platform-block" id="platformBlock"></div>
+      </div>
+      <div class="hint-grid">
+        <div class="hint-item"><span class="ico">🖊</span><div><strong>画平台</strong>食指横向滑动，松开后生成</div></div>
+        <div class="hint-item"><span class="ico">⏱</span><div><strong>拖进度</strong>左手捏合沿时间轴拖动</div></div>
+        <div class="hint-item"><span class="ico">📍</span><div><strong>调锚点</strong>右手捏合拖动平台区间</div></div>
+        <div class="hint-item"><span class="ico">🖐✊</span><div><strong>播放 / 暂停</strong>张开手播放，握拳暂停</div></div>
+        <div class="hint-item"><span class="ico">👍</span><div><strong>回到起点</strong>比大拇指重置时间</div></div>
+        <div class="hint-item"><span class="ico">✨</span><div><strong>开始</strong>食指点击画面</div></div>
+        <div class="hint-item"><span class="ico">🧭</span><div><strong>两条路</strong>录像里小人走的固定是上面那条路；缺帧期间没架好平面，揭晓时就会判定"结局不符"</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script>
+const canvas = document.getElementById('game');
+const cameraVideo = document.getElementById('cameraVideo');
+const cameraOverlay = document.getElementById('cameraOverlay');
+const cameraStatus = document.getElementById('cameraStatus');
+const debugPanel = document.getElementById('debugPanel');
+const mainTrack = document.getElementById('mainTrack');
+const scrubIndicator = document.getElementById('scrubIndicator');
+const startScreen = document.getElementById('startScreen');
+const gestureHint = document.getElementById('gestureHint');
+const ctx = canvas.getContext('2d');
+const overlayCtx = cameraOverlay.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// ---------- 全舞台手势层：让手部骨骼与命中检测覆盖画布+时间轴+平台条 ----------
+const stageEl = document.getElementById('stageArea');
+const handOverlay = document.getElementById('handOverlay');
+const handOverlayCtx = handOverlay.getContext('2d');
+
+function resizeHandOverlay(){
+  const r = stageEl.getBoundingClientRect();
+  handOverlay.width = Math.max(1, Math.round(r.width));
+  handOverlay.height = Math.max(1, Math.round(r.height));
+}
+window.addEventListener('resize', resizeHandOverlay);
+setTimeout(resizeHandOverlay, 150);
+if(window.ResizeObserver){
+  new ResizeObserver(resizeHandOverlay).observe(stageEl);
+}
+
+// 视口坐标点 (px,py) 是否落在某个 DOM 元素的 getBoundingClientRect() 范围内
+function pointInRect(px, py, rect){
+  return px >= rect.left && px <= rect.right && py >= rect.top && py <= rect.bottom;
+}
+// 把视口坐标转换成游戏画布的逻辑坐标（0..W, 0..H），供“画平台”手势复用鼠标那套逻辑
+function canvasLogicalFromPoint(px, py){
+  const r = canvas.getBoundingClientRect();
+  const scaleX = W / r.width, scaleY = H / r.height;
+  return { x: (px - r.left) * scaleX, y: (py - r.top) * scaleY };
+}
+const debugLines = [];
+function pushDebug(message){
+  const ts = (performance.now()/1000).toFixed(2);
+  debugLines.unshift(`<strong>[${ts}s]</strong> ${message}`);
+  if(debugLines.length > 7) debugLines.length = 7;
+  debugPanel.innerHTML = debugLines.join('');
+}
+let _lastStatusText = '';
+function setStatus(text, opts = {}){
+  cameraStatus.textContent = text;
+  const force = !!opts.force;
+  if(force || text !== _lastStatusText){
+    pushDebug(text);
+    _lastStatusText = text;
+  }
+}
+
+function resizeOverlay(){
+  const r = cameraVideo.getBoundingClientRect();
+  cameraOverlay.width = r.width;
+  cameraOverlay.height = r.height;
+}
+window.addEventListener('resize', resizeOverlay);
+setTimeout(resizeOverlay, 150);
+
+function isPointGesture(landmarks){
+  const handSize = distance(landmarks[0], landmarks[9]);
+  const indexOpen = isFingerOpen(landmarks[8], landmarks[5], handSize);
+  const middleClosed = !isFingerOpen(landmarks[12], landmarks[9], handSize);
+  const ringClosed = !isFingerOpen(landmarks[16], landmarks[13], handSize);
+  const pinkyClosed = !isFingerOpen(landmarks[20], landmarks[17], handSize);
+  return indexOpen && middleClosed && ringClosed && pinkyClosed;
+}
+
+function isIndexExtended(landmarks){
+  const handSize = distance(landmarks[0], landmarks[9]);
+  return isFingerOpen(landmarks[8], landmarks[5], handSize);
+}
+
+function drawOverlay(handsData){
+  overlayCtx.clearRect(0,0,cameraOverlay.width,cameraOverlay.height);
+  if(!handsData || !handsData.length) return;
+  const w = cameraOverlay.width;
+  const h = cameraOverlay.height;
+  const mapPoint = (lm) => ({ x: lm.x * w, y: lm.y * h });
+  const drawHand = (hand) => {
+    overlayCtx.strokeStyle = 'rgba(94,234,212,0.85)';
+    overlayCtx.lineWidth = 2;
+    const landmarks = hand.landmarks;
+    for(const conn of HAND_CONNECTIONS){
+      const a = mapPoint(landmarks[conn[0]]);
+      const b = mapPoint(landmarks[conn[1]]);
+      overlayCtx.beginPath(); overlayCtx.moveTo(a.x,a.y); overlayCtx.lineTo(b.x,b.y); overlayCtx.stroke();
+    }
+    for(let i=0;i<landmarks.length;i++){
+      const p = mapPoint(landmarks[i]);
+      overlayCtx.fillStyle = i===8 ? 'rgba(240,176,74,0.95)' : 'rgba(94,234,212,0.75)';
+      overlayCtx.beginPath(); overlayCtx.arc(p.x, p.y, i===8 ? 5 : 3, 0, Math.PI*2); overlayCtx.fill();
+    }
+  };
+  handsData.forEach(drawHand);
+};
+
+// ---------- Level definition ----------
+// x(t) 恒定于 VX（重力只影响 y）。下面那条路和上面那条路左边缘对齐，都能
+// 让角色安全走到终点——但胶片记录下来的结局是固定的：小人走的就是【上面
+// 那条路】。缺帧期间到底发生了什么，只有玩家能看到自己画的临时平面；一旦
+// 越过缺帧终点，画面播放的永远是"录像真实发生的样子"（上面那条路）。玩家
+// 的任务不是"让角色活下来"，而是让自己画的平面在物理上真的能撑起这个已经
+// 录好的结局——如果接不住，揭晓的瞬间就会被判定"结局不符"。
+const GROUND_Y = 230;      // 起始地面 & 上层平面 的高度
+const LOWER_Y = 305;       // 下层平面 的高度（另一条路，仅供参考对比，不会被判定为正确）
+const LOWER_X1 = 400;      // 下层平面的左边缘（明显早于自然落点，默认下坠稳稳接住）
+const UPPER_X1 = 560;      // 上层平面的左边缘（明显晚于自然落点，必须手绘平面才够得到）
+const LEVELS = [
+  {
+    id: 0,
+    name: '断层 · 跳切',
+    subtitle: '角色的动作无法改变。画面全程正常播放，没有黑屏遮蔽。用摄像头手势控制：<span class="tag amber">食指横向拖动</span> 绘制平面；<span class="tag">左手捏合</span> 拖动时间轴；<span class="tag teal">右手捏合</span> 调整平面区间；<span class="tag">🖐 播放</span> · <span class="tag">✊ 暂停</span> · <span class="tag">👍 回到起点+清除平面</span>。缺口之后其实有两条并排的路——一条在上，一条在下。角色会自己摔下去、落在<b>下面那条路</b>上站稳，看着很顺理成章；但录像剪过，过一会儿画面会硬切到<b>上面那条路</b>——这才是已经录好、改不了的结局。你要做的，是在切点之前架好一段平面，让物理演算真的能把他接到上面那条路，接上了画面就是一镜到底；接不上，你会亲眼看到那个突兀的错位。',
+    groundSegments: [
+      { x1:0,       x2:300, y:GROUND_Y },   // 起始地面，300 处断开
+      { x1:LOWER_X1,x2:W,   y:LOWER_Y  },   // 下面那条路（看起来顺理成章，但不是录像里的结局）
+      { x1:UPPER_X1,x2:W,   y:GROUND_Y }    // 上面那条路（录像固定显示的结局）
+    ],
+    EDGE_X: 300,
+    CHAR_START_X: 40,
+    VX: 140,
+    GRAVITY: 850,
+    JUMP_VELOCITY: -380,
+    EXIT_X: W - 20,
+    TIMELINE_DURATION: 6.5,
+    // 角色约在 1.86s 起跳，不加干预的话自然轨迹会在 ~2.92s 落上"下面那条
+    // 路"并站定——玩家会亲眼看着他摔下去、站稳。4.0s 是硬剪的切点：一旦
+    // 越过，画面固定切到"上面那条路"的录像。visible:true 表示不再遮黑，
+    // 玩家全程能看——如果没提前用平面把他接到上层高度，越过切点时会看到
+    // 角色从"已经站在下面"突然跳变成"站在上面"，一眼就能看出接不上。
+    lock: {
+      start: 2.70, end: 4.0, visible: true,
+      captionLocked: '正常播放 · 但过一会儿会硬切到另一条路 · 提前架好平面接上这一剪',
+      captionSolved: '接上了 · 这一剪天衣无缝',
+      failText: '画面跳了一下 · 这段路没能接到剪进来的那个镜头'
+    }
+  }
+];
+let currentLevelIndex = 0;
+let groundSegments, EDGE_X, CHAR_START_X, VX, GRAVITY, JUMP_VELOCITY, EXIT_X, TIMELINE_DURATION;
+let currentLevel = LEVELS[0];
+let lockSolved = false;
+
+// 落点是否与录像里的结局一致（即是否走的是"上面那条路"）
+function matchesRecording(st){
+  return Math.abs(st.y - GROUND_Y) < 5;
+}
+
+// ---------- State ----------
+let time = 0;
+let isPlaying = false;
+let isStarted = false;
+let platform = null; // {x1,x2,tStart,tEnd}  y is always GROUND_Y
+let lastBad = false, lastWin = false;
+let deathTime = null, winTime = null;
+let prevFrameTime = 0;
+
+let trailPoints = [];
+const TRAIL_MAX = 22;
+let activeDrawSide = null;
+let lastHandLandmarks = null;
+let handAnchors = [];
+let lastHandsStageData = []; // 每只手 {landmarks, handedness, stagePoints} ，stagePoints 是相对 .stage 左上角的像素坐标
+const HAND_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [5,9],[9,10],[10,11],[11,12],
+  [9,13],[13,14],[14,15],[15,16],
+  [13,17],[17,18],[18,19],[19,20],
+  [0,17]
+];
+
+// gesture state
+let pointActive = false;
+let okActive = false;
+let lastPointActive = false;
+let lastOkActive = false;
+let pointMode = null; // null | 'draw' | 'scrub' | 'platform' | 'idle' —— 由食指指向落点决定
+
+// drawing state
+let isDrawing = false, drawStart = null;
+// scrub state
+let isScrubbing = false;
+// platform block drag state
+let isDraggingPlatform = false, dragOffsetT = 0;
+
+// 某个 x 位置上，所有"固定地面/平面"在这一刻能提供的高度（可能不止一个，
+// 比如下层平面和上层平面在 x=560~640 这段是重叠的）。
+function getFixedSurfaceYs(x){
+  const ys = [];
+  for(const seg of groundSegments){
+    if(x >= seg.x1 && x <= seg.x2) ys.push(seg.y !== undefined ? seg.y : GROUND_Y);
+  }
+  return ys;
+}
+// 玩家手绘的临时平面，高度固定为 GROUND_Y（正好等于"上层平面"的高度）。
+function getPlayerSurfaceY(x, t){
+  if(platform && t >= platform.tStart && t <= platform.tEnd && x >= platform.x1 && x <= platform.x2){
+    return GROUND_Y;
+  }
+  return null;
+}
+
+// Pure replay function: derive character state at time t from scratch.
+function computeStateAt(t){
+  let st = { x:CHAR_START_X, y:GROUND_Y, vy:0, jumped:false, onSurface:true,
+             dead:false, deathTime:null, success:false, successTime:null };
+  const dt = 1/120;
+  let cur = 0;
+  while(cur < t){
+    if(st.dead || st.success) break;
+    const step = Math.min(dt, t - cur);
+    cur += step;
+
+    st.x += VX * step;
+
+    if(!st.jumped && st.x >= EDGE_X){
+      st.jumped = true;
+      st.vy = JUMP_VELOCITY;
+      st.onSurface = false;
+    }
+
+    if(st.onSurface){
+      // 站在地面/平面上：只有脚下这一高度的支撑还在，才继续走；
+      // 否则地面到头了（哪怕更高处还有别的平面），开始下坠。
+      const ys = getFixedSurfaceYs(st.x);
+      const py = getPlayerSurfaceY(st.x, cur);
+      if(py !== null) ys.push(py);
+      if(!ys.includes(st.y)){
+        st.onSurface = false;
+      }
+    }
+
+    if(!st.onSurface){
+      const prevY = st.y;
+      st.vy += GRAVITY * step;
+      st.y += st.vy * step;
+
+      if(st.vy > 0){
+        // 下坠中：只接住"这一步真正穿过"的那个高度（已经在脚下方的平面
+        // 不会被重新捕获，避免"从平面下方穿过"时被吸上去）。
+        const ys = getFixedSurfaceYs(st.x);
+        const py = getPlayerSurfaceY(st.x, cur);
+        if(py !== null) ys.push(py);
+        const crossed = ys.filter(y => y >= prevY && y <= st.y).sort((a,b)=>a-b);
+        if(crossed.length){
+          st.y = crossed[0]; st.vy = 0; st.onSurface = true;
+        }
+      }
+    }
+
+    if(st.y > H + 60){ st.dead = true; st.deathTime = cur; }
+    if(st.x > EXIT_X){ st.success = true; st.successTime = cur; }
+  }
+  return st;
+}
+
+// "命运已录好"的固定真实轨迹：假设缺帧那段时间，环境里确实有一段平面把
+// 角色从起跳边缘一路接到了上层平面的起点——这就是录像真正记录下来的事，
+// 与玩家当前实际画的那段临时平面无关。缺帧结束后播放的，就是这条轨迹。
+function computeCanonicalStateAt(t){
+  const savedPlatform = platform;
+  platform = { x1: EDGE_X - 10, x2: UPPER_X1 + 10, tStart: -1e9, tEnd: 1e9 };
+  const st = computeStateAt(t);
+  platform = savedPlatform;
+  return st;
+}
+
+function distance(a, b){
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function isFingerOpen(tip, mcp, handSize){
+  return distance(tip, mcp) > Math.max(0.08, handSize * 0.20);
+}
+
+function isFist(landmarks){
+  const handSize = distance(landmarks[0], landmarks[9]);
+  return !isFingerOpen(landmarks[8], landmarks[5], handSize)
+      && !isFingerOpen(landmarks[12], landmarks[9], handSize)
+      && !isFingerOpen(landmarks[16], landmarks[13], handSize)
+      && !isFingerOpen(landmarks[20], landmarks[17], handSize);
+}
+
+function isPinch(landmarks){
+  // 握拳时拇指与食指自然靠拢，必须先排除
+  if(isFist(landmarks)) return false;
+
+  const handSize = distance(landmarks[0], landmarks[9]);
+  const pinchDistance = distance(landmarks[4], landmarks[8]);
+  const thumbIndexThreshold = Math.max(0.07, handSize * 0.26);
+  if(pinchDistance >= thumbIndexThreshold) return false;
+
+  // 捏合：食指向前伸出；拳头则食指卷向掌心
+  const indexExtended = isFingerOpen(landmarks[8], landmarks[5], handSize);
+  const indexReach = distance(landmarks[8], landmarks[0]);
+  if(!indexExtended && indexReach < handSize * 0.48) return false;
+
+  // 捏合时其余手指至少有一根松开；拳头则全部卷曲
+  const middleOpen = isFingerOpen(landmarks[12], landmarks[9], handSize);
+  const ringOpen = isFingerOpen(landmarks[16], landmarks[13], handSize);
+  const pinkyOpen = isFingerOpen(landmarks[20], landmarks[17], handSize);
+  return middleOpen || ringOpen || pinkyOpen;
+}
+
+function getPinchPoint(landmarks){
+  return {
+    x: (landmarks[4].x + landmarks[8].x) / 2,
+    y: (landmarks[4].y + landmarks[8].y) / 2
+  };
+}
+
+function isOpenHand(landmarks){
+  if(isFist(landmarks) || isPinch(landmarks)) return false;
+  const handSize = distance(landmarks[0], landmarks[9]);
+  return isFingerOpen(landmarks[8], landmarks[5], handSize)
+      && isFingerOpen(landmarks[12], landmarks[9], handSize)
+      && isFingerOpen(landmarks[16], landmarks[13], handSize)
+      && isFingerOpen(landmarks[20], landmarks[17], handSize);
+}
+
+function isThumbsUp(landmarks){
+  const handSize = distance(landmarks[0], landmarks[9]);
+  const thumbOpen = isFingerOpen(landmarks[4], landmarks[2], handSize);
+  const indexClosed = !isFingerOpen(landmarks[8], landmarks[5], handSize);
+  const middleClosed = !isFingerOpen(landmarks[12], landmarks[9], handSize);
+  const ringClosed = !isFingerOpen(landmarks[16], landmarks[13], handSize);
+  const pinkyClosed = !isFingerOpen(landmarks[20], landmarks[17], handSize);
+  const thumbIndexDist = distance(landmarks[4], landmarks[8]);
+  const thumbIndexThreshold = Math.max(0.10, handSize * 0.24);
+  const thumbWristDist = distance(landmarks[4], landmarks[0]);
+  const thumbWristThreshold = Math.max(0.12, handSize * 0.26);
+  return thumbOpen && indexClosed && middleClosed && ringClosed && pinkyClosed
+      && thumbIndexDist > thumbIndexThreshold
+      && thumbWristDist > thumbWristThreshold;
+}
+
+function isOkGesture(landmarks){
+  const thumbIndex = distance(landmarks[4], landmarks[8]);
+  const handSize = distance(landmarks[0], landmarks[9]);
+  const thumbIndexThreshold = Math.max(0.06, handSize * 0.14);
+  const middleOpen = isFingerOpen(landmarks[12], landmarks[9], handSize);
+  const ringOpen = isFingerOpen(landmarks[16], landmarks[13], handSize);
+  const pinkyOpen = isFingerOpen(landmarks[20], landmarks[17], handSize);
+  return thumbIndex < thumbIndexThreshold && middleOpen && ringOpen && pinkyOpen;
+}
+
+function getHandCanvasPos(landmarks){
+  const tip = landmarks[8];
+  return {
+    x: Math.min(W, Math.max(0, tip.x * W)),
+    y: Math.min(H, Math.max(0, tip.y * H))
+  };
+}
+
+function updateScrubIndicator(active, pct){
+  if(active){
+    scrubIndicator.style.display = 'block';
+    scrubIndicator.style.left = `${Math.min(100, Math.max(0, pct * 100))}%`;
+    mainTrack.classList.add('scrub-active');
+  } else {
+    scrubIndicator.style.display = 'none';
+    mainTrack.classList.remove('scrub-active');
+  }
+}
+
+function finishHandDraw(){
+  if(drawStart && drawCurrent){
+    const dx = drawCurrent.x - drawStart.x;
+    const dy = drawCurrent.y - drawStart.y;
+    if(Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.2){
+      const x1 = Math.max(0, Math.min(drawStart.x, drawCurrent.x));
+      const x2 = Math.min(W, Math.max(drawStart.x, drawCurrent.x));
+      const tStart = time;
+      const tEnd = Math.min(TIMELINE_DURATION, tStart + 3.0);
+      platform = { x1, x2, tStart, tEnd };
+    }
+  }
+  isDrawing = false;
+  drawStart = null;
+}
+
+function onHandsResults(results){
+  if(!results.multiHandLandmarks || !results.multiHandLandmarks.length){
+    if(lastPointActive){
+      if(pointMode === 'draw') finishHandDraw();
+      if(pointMode === 'scrub') updateScrubIndicator(false);
+      if(pointMode === 'platform') isDraggingPlatform = false;
+    }
+    pointActive = false;
+    okActive = false;
+    lastPointActive = false;
+    pointMode = null;
+    isScrubbing = false;
+    setStatus('未检测到手势');
+    lastHandLandmarks = null;
+    handAnchors = [];
+    lastHandsStageData = [];
+    drawOverlay(null);
+    return;
+  }
+
+  const handsData = results.multiHandLandmarks.map((landmarks, index) => {
+    const label = results.multiHandedness?.[index]?.classification?.[0]?.label || 'Right';
+    const side = landmarks[0].x < 0.5 ? 'Left' : 'Right';
+    return { landmarks, handedness: label, side };
+  });
+  drawOverlay(handsData);
+
+  const stageRect = stageEl.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+
+  // 无论是否已开始，都更新舞台骨骼数据，让 overlay 即时显示
+  handsData.forEach(hand => {
+    hand.stagePoints = hand.landmarks.map(lm => ({
+      x: lm.x * stageRect.width,
+      y: lm.y * stageRect.height
+    }));
+  });
+  lastHandsStageData = handsData;
+  handAnchors = handsData.length ? handsData[0].stagePoints : [];
+
+  if(!isStarted){
+    const startPoint = handsData.find(hand => {
+      if(!isPointGesture(hand.landmarks)) return false;
+      const tip = hand.landmarks[8];
+      if(!tip) return false;
+      const px = stageRect.left + tip.x * stageRect.width;
+      const py = stageRect.top + tip.y * stageRect.height;
+      return pointInRect(px, py, canvasRect);
+    });
+    if(startPoint){
+      isStarted = true;
+      isPlaying = true;
+      startScreen.classList.add('hide');
+      setStatus('游戏开始');
+    } else {
+      setStatus('开场中：任意手食指点击画面开始');
+      return;
+    }
+  }
+
+  const leftHand = handsData.find(hand => hand.side === 'Left');
+  const rightHand = handsData.find(hand => hand.side === 'Right');
+  const leftThumbsUp = leftHand ? isThumbsUp(leftHand.landmarks) : false;
+  const rightThumbsUp = rightHand ? isThumbsUp(rightHand.landmarks) : false;
+
+  // pinch / open / fist detection for left/right hands
+  const leftPinch = leftHand ? isPinch(leftHand.landmarks) : false;
+  const rightPinch = rightHand ? isPinch(rightHand.landmarks) : false;
+  const leftOpen = leftHand ? isOpenHand(leftHand.landmarks) : false;
+  const rightOpen = rightHand ? isOpenHand(rightHand.landmarks) : false;
+  const leftFist = leftHand ? isFist(leftHand.landmarks) : false;
+  const rightFist = rightHand ? isFist(rightHand.landmarks) : false;
+
+  // rects used for hit-testing (stage-relative stageRect defined earlier)
+  const platformRect = platform ? platformBlock.getBoundingClientRect() : null;
+  const mainTrackRect = mainTrack.getBoundingClientRect();
+  const platformTrackRect = platformTrack.getBoundingClientRect();
+
+  let handledPinch = false;
+
+  // 握拳优先于捏合：握拳时不应触发进度条/平台拖动
+  if(leftFist && isScrubbing){
+    isScrubbing = false;
+    updateScrubIndicator(false);
+    if(pointMode === 'scrub') pointMode = null;
+  }
+  if(rightFist && isDraggingPlatform){
+    isDraggingPlatform = false;
+    if(pointMode === 'platform') pointMode = null;
+  }
+
+  // 左手捏合：控制主时间轴（拖进度）
+  if(leftPinch && leftHand && !leftFist){
+    const pinchPoint = getPinchPoint(leftHand.landmarks);
+    const pinchX = stageRect.left + pinchPoint.x * stageRect.width;
+    const pinchY = stageRect.top + pinchPoint.y * stageRect.height;
+    if(isScrubbing || pointInRect(pinchX, pinchY, mainTrackRect)){
+      if(!isScrubbing){
+        pointMode = 'scrub';
+        isPlaying = false;
+        isScrubbing = true;
+        setStatus('左手捏合 · 拖动改变进度');
+      }
+      const pct = Math.min(1, Math.max(0, (pinchX - mainTrackRect.left)/mainTrackRect.width));
+      time = pct * TIMELINE_DURATION;
+      updateScrubIndicator(true, pct);
+      handledPinch = true;
+    }
+  } else if(isScrubbing){
+    isScrubbing = false;
+    updateScrubIndicator(false);
+    pointMode = null;
+  }
+
+  // 右手捏合：控制平台锚定区间（拖整块）
+  if(rightPinch && rightHand && platform && !rightFist){
+    const pinchPoint = getPinchPoint(rightHand.landmarks);
+    const pinchX = stageRect.left + pinchPoint.x * stageRect.width;
+    const pinchY = stageRect.top + pinchPoint.y * stageRect.height;
+    // 若在平台块或平台轨道上方，则开始拖动平台时间窗口
+    if(isDraggingPlatform || (platformRect && pointInRect(pinchX, pinchY, platformRect)) || pointInRect(pinchX, pinchY, platformTrackRect)){
+      if(!isDraggingPlatform){
+        pointMode = 'platform';
+        isPlaying = false;
+        isDraggingPlatform = true;
+        const r = platformTrackRect;
+        const pct = (pinchX - r.left) / r.width;
+        dragOffsetT = pct * TIMELINE_DURATION - platform.tStart;
+        setStatus('右手捏合 · 拖动平台锚定区间');
+      }
+      const r = platformTrackRect;
+      const pct = Math.min(1, Math.max(0, (pinchX - r.left) / r.width));
+      let newStart = pct * TIMELINE_DURATION - dragOffsetT;
+      const width = platform.tEnd - platform.tStart;
+      newStart = Math.max(0, Math.min(TIMELINE_DURATION - width, newStart));
+      platform.tStart = newStart;
+      platform.tEnd = newStart + width;
+      handledPinch = true;
+    }
+  } else if(isDraggingPlatform){
+    isDraggingPlatform = false;
+    pointMode = null;
+  }
+
+  // 当不在捏合/拖动/绘制期间，用张开/握拳/比大拇指做控制（优先级低于捏合与点指）
+  if(!isScrubbing && !isDraggingPlatform && !isDrawing){
+    if(leftThumbsUp || rightThumbsUp){
+      time = 0;
+      isPlaying = false;
+      trailPoints = [];
+      platform = null;
+      handAnchors = [];
+      lastHandLandmarks = null;
+      lastHandsStageData = [];
+      if(pointMode === 'platform'){ pointMode = null; isDraggingPlatform = false; }
+      setStatus('比大拇指 · 回到起点 + 清除平台');
+    } else if(leftOpen || rightOpen){
+      if(!isPlaying){ isPlaying = true; setStatus('张开手 · 播放'); }
+    } else if(leftFist || rightFist){
+      if(isPlaying){ isPlaying = false; setStatus('握拳 · 暂停'); }
+    }
+  }
+
+  // point 手势（食指指向）只在没有被捏合操作占用时生效
+  const pointHands = handledPinch ? [] : handsData.filter(hand => isPointGesture(hand.landmarks));
+  let pointHand = pointHands[0] || null;
+
+  if(!pointHand && pointMode === 'draw'){
+    // 如果已经进入绘制模式，则允许在点指识别抖动时继续保持绘制，
+    // 只要食指仍伸出并在画布区域内就继续更新当前绘制位置。
+    const fallback = handsData.find(hand => {
+      if(!isIndexExtended(hand.landmarks)) return false;
+      const tipStage = hand.stagePoints[8];
+      const px = stageRect.left + tipStage.x;
+      const py = stageRect.top + tipStage.y;
+      return pointInRect(px, py, canvasRect);
+    });
+    if(fallback) pointHand = fallback;
+  }
+
+  if(pointHand){
+    // 指尖（index tip, landmark 8）换算成视口坐标，用来判定这次食指指向落在哪个控件上
+    const tipStage = pointHand.stagePoints[8];
+    const pinchX = stageRect.left + tipStage.x;
+    const pinchY = stageRect.top + tipStage.y;
+
+    if(pointMode === null){
+      // 刚做出食指指向的这一帧：判断落点区域，锁定本次要操作的控件，直到收回食指
+      const platformRect = platform ? platformBlock.getBoundingClientRect() : null;
+      const mainTrackRect = mainTrack.getBoundingClientRect();
+      const canvasRect = canvas.getBoundingClientRect();
+
+      if(platformRect && pointInRect(pinchX, pinchY, platformRect)){
+        pointMode = 'platform';
+        isPlaying = false;
+        isDraggingPlatform = true;
+        const r = platformTrack.getBoundingClientRect();
+        const pct = (pinchX - r.left) / r.width;
+        dragOffsetT = pct * TIMELINE_DURATION - platform.tStart;
+        setStatus('食指指向平台锚定块 · 拖动调整出现时刻');
+      } else if(pointInRect(pinchX, pinchY, mainTrackRect)){
+        pointMode = 'scrub';
+        isPlaying = false;
+        isScrubbing = true;
+        setStatus('食指指向主时间轴 · 拖动改变进度');
+      } else if(pointInRect(pinchX, pinchY, canvasRect)){
+        pointMode = 'draw';
+        isPlaying = false;
+        isDrawing = true;
+        const p = canvasLogicalFromPoint(pinchX, pinchY);
+        drawStart = p; drawCurrent = p;
+        setStatus('食指指向画面 · 横向拖动绘制平台');
+      } else {
+        pointMode = 'idle';
+      }
+    } else if(pointMode === 'platform' && platform){
+      const r = platformTrack.getBoundingClientRect();
+      const pct = (pinchX - r.left) / r.width;
+      const width = platform.tEnd - platform.tStart;
+      let newStart = pct * TIMELINE_DURATION - dragOffsetT;
+      newStart = Math.max(0, Math.min(TIMELINE_DURATION - width, newStart));
+      platform.tStart = newStart;
+      platform.tEnd = newStart + width;
+    } else if(pointMode === 'scrub'){
+      const r = mainTrack.getBoundingClientRect();
+      const pct = Math.min(1, Math.max(0, (pinchX - r.left) / r.width));
+      time = pct * TIMELINE_DURATION;
+      updateScrubIndicator(true, pct);
+    } else if(pointMode === 'draw'){
+      drawCurrent = canvasLogicalFromPoint(pinchX, pinchY);
+    }
+  } else if(lastPointActive){
+    // 食指收回：根据之前锁定的模式做收尾
+    if(pointMode === 'draw') finishHandDraw();
+    if(pointMode === 'scrub') updateScrubIndicator(false);
+    if(pointMode === 'platform') isDraggingPlatform = false;
+    isScrubbing = false;
+    pointMode = null;
+  }
+
+  setStatus(`检测到手势：point=${!!pointHand}${pointHand ? '(' + pointMode + ')' : ''} thumbsUp=${leftThumbsUp || rightThumbsUp}`);
+
+  // OK 手势播放已移除；播放/暂停由张开手/握拳控制（见上方逻辑）
+
+  lastPointActive = !!pointHand;
+  lastOkActive = false;
+}
+
+const hands = new Hands({
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+hands.setOptions({
+  maxNumHands: 2,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5,
+  modelComplexity: 0,
+  selfieMode: true
+});
+hands.onResults(onHandsResults);
+
+let _handsReady = false;
+let _handsProcessing = false;
+
+let _frameCount = 0;
+let _fpsLastTs = performance.now();
+let _fps = 0;
+
+cameraVideo.addEventListener('loadeddata', () => {
+  try {
+    cameraOverlay.width = cameraVideo.videoWidth || 640;
+    cameraOverlay.height = cameraVideo.videoHeight || 480;
+    pushDebug('camera loaded: ' + cameraOverlay.width + 'x' + cameraOverlay.height);
+  } catch (e) {
+    console.warn('failed to resize overlay', e);
+  }
+});
+
+const camera = new Camera(cameraVideo, {
+  onFrame: async () => {
+    if(_handsProcessing) return;
+    _handsProcessing = true;
+    try {
+      await hands.send({ image: cameraVideo });
+      if(!_handsReady){
+        _handsReady = true;
+        setStatus('手势模型已就绪');
+      }
+      _frameCount++;
+      const now = performance.now();
+      const dt = now - _fpsLastTs;
+      if (dt >= 500) {
+        _fps = Math.round((_frameCount * 1000) / dt);
+        _frameCount = 0;
+        _fpsLastTs = now;
+        pushDebug('FPS: ' + _fps);
+      }
+    } catch (err) {
+      pushDebug('hands.send error: ' + (err && err.message ? err.message : err));
+      console.error(err);
+    } finally {
+      _handsProcessing = false;
+    }
+  },
+  width: 480,
+  height: 360
+});
+
+if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+  setStatus('当前浏览器不支持摄像头，请使用最新 Chrome/Edge 并通过 http:// 或 https:// 打开页面');
+  pushDebug('navigator.mediaDevices.getUserMedia 不可用');
+} else {
+  camera.start().then(() => {
+    setStatus('摄像头已就绪，正在加载手势模型…');
+  }).catch((err) => {
+    const baseMsg = '摄像头启动失败，请允许访问';
+    const extra = window.location.protocol === 'file:'
+      ? '（请不要直接用 file:// 打开，改用 localhost 或通过本地服务器访问）'
+      : '';
+    setStatus(`${baseMsg}${extra}`);
+    pushDebug('camera.start error: ' + (err && err.message ? err.message : err));
+    console.error(err);
+  });
+}
+
+// ---------- Rendering ----------
+function draw(){
+  const lock = currentLevel.lock;
+  const pastLock = lock && time > lock.end;
+  const st = pastLock ? computeCanonicalStateAt(time) : computeStateAt(time);
+  const cx = st.x;
+  const cy = st.y - 14;
+
+  // 缺帧锁定检测提前到这里算一次，供轨迹渲染和后面的画面遮蔽共用。
+  // 这里的判定始终基于玩家【当前实际画的】临时平面，跟上面渲染用的
+  // "录像真实轨迹"是两回事——一个用来判断有没有猜对，一个用来播放。
+  let showNoise = false;
+  if(lock){
+    const checkSt = computeStateAt(lock.end);
+    lockSolved = matchesRecording(checkSt) && !checkSt.dead;
+    if(!lockSolved && time >= lock.start && time <= lock.end && !lock.visible) showNoise = true;
+  } else {
+    lockSolved = false;
+  }
+
+  if(!showNoise){
+    trailPoints.push({ x: cx, y: cy });
+    if(trailPoints.length > TRAIL_MAX) trailPoints.shift();
+  }
+
+  ctx.clearRect(0,0,W,H);
+
+  // sky + stars
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#161C2A'); g.addColorStop(0.55,'#101520'); g.addColorStop(1,'#0A0D14');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  const starSeed = [42,17,88,123,201,67,155,33,190,76,112,48,167,91,134,58,178,25,145,99];
+  for(let i=0;i<starSeed.length;i++){
+    const sx = (starSeed[i] * 37 + i * 53) % W;
+    const sy = (starSeed[i] * 13 + i * 29) % (GROUND_Y - 40) + 12;
+    const r = (starSeed[i] % 3) * 0.4 + 0.6;
+    const twinkle = 0.3 + 0.7 * Math.abs(Math.sin(time * 1.2 + i * 0.7));
+    ctx.globalAlpha = twinkle * 0.5;
+    ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // distant horizon glow
+  const hg = ctx.createLinearGradient(0, GROUND_Y - 60, 0, GROUND_Y + 10);
+  hg.addColorStop(0, 'transparent');
+  hg.addColorStop(1, 'rgba(240,176,74,0.04)');
+  ctx.fillStyle = hg;
+  ctx.fillRect(0, GROUND_Y - 60, W, 70);
+
+  // ground segments —— 第一段视为"起始地面"，实心填到画布底部；
+  // 其余各段是悬空的平面，按自身高度画成较薄的悬浮板，方便区分上/下两条路。
+  groundSegments.forEach((seg, i) => {
+    const gw = seg.x2 - seg.x1;
+    const sy = seg.y !== undefined ? seg.y : GROUND_Y;
+    const isBase = (i === 0);
+    const thickness = isBase ? (H - sy - 6) : Math.min(H - sy - 6, sy === GROUND_Y ? 20 : 12);
+    ctx.fillStyle = '#1A2030';
+    ctx.fillRect(seg.x1, sy+6, gw, thickness);
+    ctx.fillStyle = '#2E3648';
+    ctx.fillRect(seg.x1, sy+4, gw, 4);
+    ctx.fillStyle = 'rgba(94,234,212,0.08)';
+    ctx.fillRect(seg.x1, sy+8, gw, 1);
+    if(!isBase){
+      // 悬浮平面加一点描边，强调它是"漂浮"的，不是连到地底的实心地面
+      ctx.strokeStyle = sy === GROUND_Y ? 'rgba(94,234,212,0.28)' : 'rgba(240,176,74,0.28)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(seg.x1+0.5, sy+4.5, gw-1, thickness+1);
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = sy === GROUND_Y ? 'rgba(94,234,212,0.55)' : 'rgba(240,176,74,0.5)';
+      ctx.fillText(sy === GROUND_Y ? '上面这条路' : '下面这条路', (seg.x1+seg.x2)/2, sy - 10);
+      ctx.textAlign = 'left';
+    }
+  });
+
+  // gap void hint：起始地面断开之后，到最近的悬浮平面之间是纯粹的空气（必死区）
+  const gapX1 = groundSegments[0].x2;
+  const gapX2 = Math.min(...groundSegments.slice(1).map(s => s.x1));
+  ctx.strokeStyle = 'rgba(255,107,107,0.2)';
+  ctx.setLineDash([6,6]);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(gapX1, GROUND_Y+8); ctx.lineTo(gapX2, GROUND_Y+8);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = '11px "JetBrains Mono", monospace';
+  ctx.fillStyle = 'rgba(255,107,107,0.35)';
+  ctx.textAlign = 'center';
+  ctx.fillText('GAP', (gapX1+gapX2)/2, GROUND_Y - 8);
+  ctx.textAlign = 'left';
+
+  // ---------- 首尾证据标记（起跳点固定可见，"必须存活"目标点也固定可见） ----------
+  if(currentLevel.lock){
+    const lock = currentLevel.lock;
+    // 首尾证据：起跳点位置固定可见，"必须存活"目标点也固定可见（因为
+    // x(t) 只由恒定水平速度决定，不受平台影响）——玩家靠这两个点推理。
+    const jumpGhostX = EDGE_X;
+    const targetGhostX = Math.min(EXIT_X, CHAR_START_X + VX * lock.end);
+    ctx.save();
+    ctx.setLineDash([3,4]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(240,176,74,0.55)';
+    ctx.beginPath(); ctx.arc(jumpGhostX, GROUND_Y-14, 11, 0, Math.PI*2); ctx.stroke();
+    ctx.strokeStyle = lockSolved ? 'rgba(94,234,212,0.6)' : 'rgba(255,107,107,0.55)';
+    ctx.beginPath(); ctx.arc(targetGhostX, GROUND_Y-14, 11, 0, Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(240,176,74,0.65)';
+    ctx.fillText('起跳', jumpGhostX, GROUND_Y-32);
+    ctx.fillStyle = lockSolved ? 'rgba(94,234,212,0.75)' : 'rgba(255,107,107,0.65)';
+    ctx.fillText('须落在此', targetGhostX, GROUND_Y-32);
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+
+  // platform
+  if(platform){
+    const active = time >= platform.tStart && time <= platform.tEnd;
+    const pw = platform.x2 - platform.x1;
+    ctx.globalAlpha = active ? 1 : 0.22;
+    ctx.fillStyle = active ? '#5EEAD4' : '#3A4356';
+    ctx.fillRect(platform.x1, GROUND_Y+1, pw, 8);
+    ctx.fillStyle = active ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.06)';
+    ctx.fillRect(platform.x1, GROUND_Y+1, pw, 2);
+    if(active){
+      ctx.shadowColor = '#5EEAD4'; ctx.shadowBlur = 18;
+      ctx.fillStyle = '#5EEAD4';
+      ctx.fillRect(platform.x1, GROUND_Y+1, pw, 8);
+      ctx.shadowBlur = 0;
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // trail（缺帧锁定且未解锁时，不渲染，避免提前剧透角色死没死）
+  if(!showNoise){
+    ctx.save();
+    for(let i = 0; i < trailPoints.length; i++){
+      const point = trailPoints[i];
+      const alpha = (i + 1) / trailPoints.length * 0.35;
+      const size = 12 - (trailPoints.length - i) * 0.24;
+      ctx.fillStyle = `rgba(242,238,228,${alpha})`;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, Math.max(4, size), 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // in-progress drawing preview
+  if(isDrawing && drawStart){
+    ctx.strokeStyle = '#F0B04A';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#F0B04A'; ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(drawStart.x, GROUND_Y+5);
+    ctx.lineTo(drawCurrent.x, GROUND_Y+5);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(240,176,74,0.5)';
+    ctx.beginPath();
+    ctx.arc(drawStart.x, GROUND_Y+5, 4, 0, Math.PI*2);
+    ctx.arc(drawCurrent.x, GROUND_Y+5, 4, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // character（缺帧且未解锁时不画角色本体，避免剧透落点——只在遮蔽层上留一个问号）
+  if(!showNoise){
+    ctx.save();
+    ctx.translate(cx, cy);
+    const wobble = st.onSurface ? Math.sin(time*10)*2 : 0;
+    const mismatched = st.success && !matchesRecording(st);
+    const bodyColor = st.dead ? '#FF6B6B' : (mismatched ? '#F0B04A' : '#F2EEE4');
+    ctx.fillStyle = bodyColor;
+    ctx.shadowColor = st.dead ? '#FF6B6B' : (mismatched ? 'rgba(240,176,74,0.55)' : 'rgba(240,176,74,0.35)');
+    ctx.shadowBlur = st.dead ? 16 : 12;
+    ctx.beginPath();
+    ctx.arc(0, wobble, 13, 0, Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // face dot
+    ctx.fillStyle = st.dead ? '#FFD0D0' : '#080A10';
+    ctx.beginPath();
+    ctx.arc(4, wobble - 2, 2.5, 0, Math.PI*2);
+    ctx.fill();
+    // legs
+    ctx.strokeStyle = bodyColor;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-5, 11+wobble); ctx.lineTo(-8, 22+wobble);
+    ctx.moveTo(5, 11+wobble); ctx.lineTo(8, 22+wobble);
+    ctx.stroke();
+    ctx.restore();
+  } else {
+    drawNoiseOverlay();
+  }
+
+  updateUI(st);
+}
+
+// ---------- 缺帧遮蔽层：TV 静电噪点 + 扫描线，盖住"缺失的镜头" ----------
+function drawNoiseOverlay(){
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = 'rgba(6,7,11,0.55)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 0.5;
+  for(let i = 0; i < 140; i++){
+    const nx = Math.random() * W;
+    const ny = Math.random() * H;
+    const nw = Math.random() * 26 + 2;
+    const shade = Math.random() * 200 + 30;
+    ctx.fillStyle = `rgba(${shade|0},${shade|0},${shade|0},${Math.random()*0.5})`;
+    ctx.fillRect(nx, ny, nw, 1.5);
+  }
+  ctx.globalAlpha = 0.12;
+  ctx.fillStyle = '#fff';
+  for(let sy = 0; sy < H; sy += 3){
+    ctx.fillRect(0, sy, W, 1);
+  }
+  ctx.globalAlpha = 1;
+  ctx.font = '600 13px "JetBrains Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,107,107,0.75)';
+  ctx.fillText('画面缺失 · FOOTAGE MISSING', W/2, H/2 - 8);
+  ctx.font = '11px "JetBrains Mono", monospace';
+  ctx.fillStyle = 'rgba(242,238,228,0.55)';
+  ctx.fillText('靠首尾证据推理 · 编辑到角色能活着穿过即可自动补全', W/2, H/2 + 14);
+  ctx.textAlign = 'left';
+  ctx.restore();
+}
+
+// ---------- 手部骨骼渲染：画在覆盖全舞台的 handOverlay 上（画布+时间轴+平台条区域都能看到手） ----------
+function drawHandOverlay(){
+  handOverlayCtx.clearRect(0, 0, handOverlay.width, handOverlay.height);
+  if(!lastHandsStageData || !lastHandsStageData.length) return;
+
+  const cursorColor = pointMode === 'platform' ? 'rgba(94,234,212,0.95)'
+                     : pointMode === 'scrub'    ? 'rgba(240,176,74,0.95)'
+                     : pointMode === 'draw'     ? 'rgba(240,176,74,0.95)'
+                     : 'rgba(242,238,228,0.9)';
+
+  lastHandsStageData.forEach(hand => {
+    const pts = hand.stagePoints;
+    if(!pts) return;
+    handOverlayCtx.save();
+    handOverlayCtx.lineWidth = 2;
+    for(const conn of HAND_CONNECTIONS){
+      const a = pts[conn[0]];
+      const b = pts[conn[1]];
+      if(!a || !b) continue;
+      handOverlayCtx.strokeStyle = 'rgba(94,234,212,0.55)';
+      handOverlayCtx.beginPath();
+      handOverlayCtx.moveTo(a.x, a.y);
+      handOverlayCtx.lineTo(b.x, b.y);
+      handOverlayCtx.stroke();
+    }
+    for(let i=0;i<pts.length;i++){
+      const p = pts[i];
+      handOverlayCtx.fillStyle = i===8 ? cursorColor : 'rgba(242,238,228,0.7)';
+      handOverlayCtx.beginPath();
+      handOverlayCtx.arc(p.x, p.y, i===8 ? 7 : 4, 0, Math.PI*2);
+      handOverlayCtx.fill();
+    }
+    // 食指指向时在指尖画一个高亮环，提示当前抓取的是哪个控件（画平台 / 拖进度条 / 拖锚定块）
+    if(isPointGesture(hand.landmarks) && pts[8]){
+      handOverlayCtx.strokeStyle = cursorColor;
+      handOverlayCtx.lineWidth = 2;
+      handOverlayCtx.beginPath();
+      handOverlayCtx.arc(pts[8].x, pts[8].y, 14, 0, Math.PI*2);
+      handOverlayCtx.stroke();
+    }
+
+    // 实时读数：直接标在手旁边，肉眼就能看出每根手指的开/弯判定，以及 point / ok 有没有判定成功
+    // 不用再去找右上角那个很小的调试面板
+    const lm = hand.landmarks;
+    const handSize = distance(lm[0], lm[9]);
+    const idxOpen = isFingerOpen(lm[8], lm[5], handSize);
+    const midOpen = isFingerOpen(lm[12], lm[9], handSize);
+    const ringOpen = isFingerOpen(lm[16], lm[13], handSize);
+    const pinkyOpen = isFingerOpen(lm[20], lm[17], handSize);
+    const pointNow = isPointGesture(lm);
+    const fistNow = isFist(lm);
+    const pinchNow = isPinch(lm);
+    const thumbsUpNow = isThumbsUp(lm);
+    const label = `食${idxOpen?'开':'弯'} 中${midOpen?'开':'弯'} 无${ringOpen?'开':'弯'} 小${pinkyOpen?'开':'弯'} · fist=${fistNow?'✓':'✕'} pinch=${pinchNow?'✓':'✕'} point=${pointNow?'✓':'✕'}`;
+    const wrist = pts[0] || {x:10,y:10};
+    const labelX = Math.min(handOverlay.width - 8, Math.max(8, wrist.x - 60));
+    const labelY = Math.max(16, wrist.y - 16);
+    handOverlayCtx.font = '11px "JetBrains Mono", monospace';
+    const tw = handOverlayCtx.measureText(label).width;
+    handOverlayCtx.fillStyle = 'rgba(11,14,20,0.88)';
+    handOverlayCtx.fillRect(labelX - 4, labelY - 13, tw + 8, 17);
+    handOverlayCtx.fillStyle = fistNow ? '#FF6B6B' : pointNow ? '#F0B04A' : pinchNow ? '#F6C948' : thumbsUpNow ? '#5EEAD4' : '#F2EEE4';
+    handOverlayCtx.fillText(label, labelX, labelY);
+
+    handOverlayCtx.restore();
+  });
+}
+
+// ---------- UI sync ----------
+const playedBar = document.getElementById('playedBar');
+const playhead = document.getElementById('playhead');
+const platformBlock = document.getElementById('platformBlock');
+const failMsg = document.getElementById('failMsg');
+const winMsg = document.getElementById('winMsg');
+const timeReadout = document.getElementById('timeReadout');
+const playBtn = document.getElementById('playBtn');
+const gestureIcon = document.getElementById('gestureIcon');
+const gestureTitle = document.getElementById('gestureTitle');
+const gestureSubtitle = document.getElementById('gestureSubtitle');
+
+function updateGestureHint(){
+  if(!gestureIcon || !gestureTitle || !gestureSubtitle) return;
+
+  const leftHand = lastHandsStageData.find(hand => hand.side === 'Left');
+  const rightHand = lastHandsStageData.find(hand => hand.side === 'Right');
+  const leftOpen = leftHand ? isOpenHand(leftHand.landmarks) : false;
+  const rightOpen = rightHand ? isOpenHand(rightHand.landmarks) : false;
+  const leftFist = leftHand ? isFist(leftHand.landmarks) : false;
+  const rightFist = rightHand ? isFist(rightHand.landmarks) : false;
+  const leftThumbsUp = leftHand ? isThumbsUp(leftHand.landmarks) : false;
+  const rightThumbsUp = rightHand ? isThumbsUp(rightHand.landmarks) : false;
+
+  let icon = '👆';
+  let title = '在画面中用食指横向滑动';
+  let subtitle = '松开时生成平台';
+
+  if(isDrawing){
+    icon = '✍️';
+    title = '绘制平台';
+    subtitle = '用食指横向拖动并松开';
+  } else if(isScrubbing){
+    icon = '⏱';
+    title = '左手捏合拖动进度';
+    subtitle = '在时间轴上拖动改变播放位置';
+  } else if(isDraggingPlatform){
+    icon = '📍';
+    title = '右手捏合调整锚点';
+    subtitle = '拖动平台出现时刻';
+  } else if(leftThumbsUp || rightThumbsUp){
+    icon = '👍';
+    title = '比大拇指回到起点';
+    subtitle = '放开拇指即可重置时间';
+  } else if(leftOpen || rightOpen){
+    icon = '▶️';
+    title = '张开手播放';
+    subtitle = '放开手保持播放';
+  } else if(leftFist || rightFist){
+    icon = '✊';
+    title = '握拳暂停';
+    subtitle = '握紧拳头暂停播放';
+  }
+
+  gestureIcon.textContent = icon;
+  gestureTitle.textContent = title;
+  gestureSubtitle.textContent = subtitle;
+  gestureIcon.classList.toggle('active', isDrawing || isScrubbing || isDraggingPlatform);
+}
+
+function updateUI(st){
+  const pct = Math.min(time / TIMELINE_DURATION, 1) * 100;
+  playedBar.style.width = pct + '%';
+  playhead.style.left = pct + '%';
+  timeReadout.textContent = time.toFixed(2) + 's / ' + TIMELINE_DURATION.toFixed(2) + 's';
+
+  if(platform){
+    platformBlock.style.display = 'block';
+    const x1pct = (platform.tStart/TIMELINE_DURATION)*100;
+    const x2pct = (platform.tEnd/TIMELINE_DURATION)*100;
+    platformBlock.style.left = x1pct + '%';
+    platformBlock.style.width = (x2pct-x1pct) + '%';
+    const active = time >= platform.tStart && time <= platform.tEnd;
+    platformBlock.classList.toggle('active', active);
+  } else {
+    platformBlock.style.display = 'none';
+  }
+
+  if(gestureHint){
+    updateGestureHint();
+    gestureHint.classList.toggle('show', isStarted);
+  }
+
+  if(currentLevel.lock && lockSegmentEl){
+    const lockCfg = currentLevel.lock;
+    lockSegmentEl.classList.toggle('solved', lockSolved);
+    const icons = lockCfg.icon || { locked:'🔒', solved:'🔓' };
+    if(lockIconEl) lockIconEl.textContent = lockSolved ? icons.solved : icons.locked;
+    if(lockCaptionEl){
+      lockCaptionEl.textContent = lockSolved
+        ? (lockCfg.captionSolved || '缺失片段已补全 · 结局对上了')
+        : (lockCfg.captionLocked || '中间片段缺失 · 靠首尾证据推理，架好平面让落点对上录像里的那条路');
+    }
+  }
+
+  // 用"上一帧 time 是否已经越过 lock.end"来做边缘检测：只有真正穿过锁定
+  // 终点的那一刻，才用玩家【当前实际画的】临时平面去检查有没有猜对；
+  // 越过之后画面播放的都是命运录像（st 已经是 computeCanonicalStateAt），
+  // 所以不能再用这一帧的 st 来判断对错。
+  if(currentLevel.lock){
+    const lockEnd = currentLevel.lock.end;
+    const crossedForward = prevFrameTime <= lockEnd && time > lockEnd;
+    const crossedBackward = time <= lockEnd && prevFrameTime > lockEnd;
+    if(crossedForward){
+      const liveAtEnd = computeStateAt(lockEnd);
+      const ok = matchesRecording(liveAtEnd) && !liveAtEnd.dead;
+      if(!ok){
+        deathTime = lockEnd;
+        failMsg.textContent = currentLevel.lock.failText || '结局不符 · 缺帧里的平面没接住这段路';
+        failMsg.classList.add('show');
+        setTimeout(()=>failMsg.classList.remove('show'), 1800);
+        lastBad = true;
+      } else {
+        lastBad = false;
+      }
+    }
+    if(crossedBackward){
+      lastBad = false; lastWin = false; deathTime = null;
+    }
+  }
+  prevFrameTime = time;
+
+  if(st.success && !lastWin && !lastBad){
+    winTime = st.successTime;
+    isPlaying = false;
+    winMsg.textContent = '已锚定 · 结局对上了';
+    winMsg.classList.add('show');
+    setTimeout(()=>winMsg.classList.remove('show'), 2200);
+    lastWin = true;
+  }
+  if(!st.success){ winTime = null; }
+
+  // death / win markers on timeline
+  let deathEl = document.getElementById('deathMark');
+  if(deathTime !== null){
+    if(!deathEl){
+      deathEl = document.createElement('div');
+      deathEl.id = 'deathMark'; deathEl.className='death-mark'; deathEl.textContent='✕';
+      mainTrack.appendChild(deathEl);
+    }
+    deathEl.style.left = (deathTime/TIMELINE_DURATION*100)+'%';
+  } else if(deathEl){ deathEl.remove(); }
+
+  let winEl = document.getElementById('winMark');
+  if(winTime !== null){
+    if(!winEl){
+      winEl = document.createElement('div');
+      winEl.id='winMark'; winEl.className='win-mark'; winEl.textContent='✓';
+      mainTrack.appendChild(winEl);
+    }
+    winEl.style.left = (winTime/TIMELINE_DURATION*100)+'%';
+  } else if(winEl){ winEl.remove(); }
+
+  playBtn.textContent = isPlaying ? '⏸ 暂停' : '▶ 播放';
+}
+
+// ---------- Level loading ----------
+const levelTitleEl = document.getElementById('levelTitle');
+const levelSubEl = document.getElementById('levelSub');
+const lockSegmentEl = document.getElementById('lockSegment');
+const lockIconEl = document.getElementById('lockIcon');
+const lockCaptionEl = document.getElementById('lockCaption');
+
+function clearRunMarkers(){
+  trailPoints = [];
+  lastBad = false; lastWin = false;
+  deathTime = null; winTime = null;
+  prevFrameTime = 0;
+  const deathEl = document.getElementById('deathMark');
+  if(deathEl) deathEl.remove();
+  const winEl = document.getElementById('winMark');
+  if(winEl) winEl.remove();
+  failMsg.classList.remove('show');
+  winMsg.classList.remove('show');
+}
+
+function loadLevel(idx){
+  currentLevelIndex = idx;
+  currentLevel = LEVELS[idx];
+  groundSegments = currentLevel.groundSegments;
+  EDGE_X = currentLevel.EDGE_X;
+  CHAR_START_X = currentLevel.CHAR_START_X;
+  VX = currentLevel.VX;
+  GRAVITY = currentLevel.GRAVITY;
+  JUMP_VELOCITY = currentLevel.JUMP_VELOCITY;
+  EXIT_X = currentLevel.EXIT_X;
+  TIMELINE_DURATION = currentLevel.TIMELINE_DURATION;
+
+  time = 0; isPlaying = false; platform = null; lockSolved = false;
+  clearRunMarkers();
+
+  if(levelTitleEl){
+    levelTitleEl.textContent = '命运已录好，你只能锚定环境';
+  }
+  if(levelSubEl) levelSubEl.innerHTML = currentLevel.subtitle;
+
+  if(currentLevel.lock){
+    const pct1 = (currentLevel.lock.start / TIMELINE_DURATION) * 100;
+    const pct2 = (currentLevel.lock.end / TIMELINE_DURATION) * 100;
+    lockSegmentEl.style.left = pct1 + '%';
+    lockSegmentEl.style.width = (pct2 - pct1) + '%';
+    lockSegmentEl.style.display = 'flex';
+    lockSegmentEl.classList.remove('solved');
+    lockIconEl.textContent = '🔒';
+    lockCaptionEl.style.display = 'block';
+  } else {
+    lockSegmentEl.style.display = 'none';
+    lockCaptionEl.style.display = 'none';
+  }
+}
+
+loadLevel(0);
+
+// ---------- Main loop ----------
+let lastTs = null;
+function loop(ts){
+  if(lastTs === null) lastTs = ts;
+  const dt = Math.min((ts-lastTs)/1000, 1/30);
+  lastTs = ts;
+  if(isPlaying){
+    time += dt;
+    if(time > TIMELINE_DURATION) time = TIMELINE_DURATION;
+  }
+  draw();
+  drawHandOverlay();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// ---------- Canvas draw-platform interaction ----------
+let drawCurrent = {x:0,y:0};
+function canvasPos(e){
+  const r = canvas.getBoundingClientRect();
+  const scaleX = W / r.width, scaleY = H / r.height;
+  return { x:(e.clientX-r.left)*scaleX, y:(e.clientY-r.top)*scaleY };
+}
+canvas.addEventListener('mousedown', (e)=>{
+  const p = canvasPos(e);
+  isDrawing = true; drawStart = p; drawCurrent = p;
+  isPlaying = false;
+});
+window.addEventListener('mousemove', (e)=>{
+  if(isDrawing){
+    drawCurrent = canvasPos(e);
+  }
+});
+window.addEventListener('mouseup', ()=>{
+  if(isDrawing){
+    const dx = drawCurrent.x - drawStart.x;
+    const dy = drawCurrent.y - drawStart.y;
+    if(Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)*1.2){
+      const x1 = Math.max(0, Math.min(drawStart.x, drawCurrent.x));
+      const x2 = Math.min(W, Math.max(drawStart.x, drawCurrent.x));
+      const tStart = time;
+      const tEnd = Math.min(TIMELINE_DURATION, tStart + 3.0);
+      platform = { x1, x2, tStart, tEnd };
+    }
+    isDrawing = false; drawStart = null;
+  }
+});
+
+// ---------- Timeline scrub interaction ----------
+function seekFromEvent(e){
+  const r = mainTrack.getBoundingClientRect();
+  const pct = Math.min(1, Math.max(0, (e.clientX - r.left)/r.width));
+  time = pct * TIMELINE_DURATION;
+}
+mainTrack.addEventListener('mousedown', (e)=>{
+  isScrubbing = true; isPlaying = false; seekFromEvent(e);
+});
+window.addEventListener('mousemove', (e)=>{
+  if(isScrubbing) seekFromEvent(e);
+});
+window.addEventListener('mouseup', ()=>{ isScrubbing = false; });
+
+// ---------- Platform window drag ----------
+const platformTrack = document.getElementById('platformTrack');
+platformBlock.addEventListener('mousedown', (e)=>{
+  e.stopPropagation();
+  isDraggingPlatform = true;
+  isPlaying = false;
+  const r = platformTrack.getBoundingClientRect();
+  const pct = (e.clientX - r.left)/r.width;
+  dragOffsetT = pct*TIMELINE_DURATION - platform.tStart;
+});
+window.addEventListener('mousemove', (e)=>{
+  if(isDraggingPlatform && platform){
+    const r = platformTrack.getBoundingClientRect();
+    const pct = (e.clientX - r.left)/r.width;
+    const width = platform.tEnd - platform.tStart;
+    let newStart = pct*TIMELINE_DURATION - dragOffsetT;
+    newStart = Math.max(0, Math.min(TIMELINE_DURATION-width, newStart));
+    platform.tStart = newStart;
+    platform.tEnd = newStart + width;
+  }
+});
+window.addEventListener('mouseup', ()=>{ isDraggingPlatform = false; });
+
+// ---------- Buttons ----------
+playBtn.addEventListener('click', ()=>{
+  const st = computeStateAt(time);
+  if(st.dead || (st.success && time>=TIMELINE_DURATION-0.01)) { time = 0; }
+  isPlaying = !isPlaying;
+});
+document.getElementById('resetBtn').addEventListener('click', ()=>{
+  time = 0; isPlaying = false;
+  trailPoints = [];
+});
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  platform = null;
+  handAnchors = [];
+  lastHandLandmarks = null;
+  lastHandsStageData = [];
+  if(pointMode === 'platform'){ pointMode = null; isDraggingPlatform = false; }
+});
+</script>
+</body>
+</html>
